@@ -1,15 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Bff } from './bff';
+import { BffAdapter } from './bff';
+
 
 describe('Bff', () => {
-  let provider: Bff;
+  let provider: BffAdapter;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [Bff],
+      providers: [BffAdapter],
     }).compile();
 
-    provider = module.get<Bff>(Bff);
+    provider = module.get<BffAdapter>(BffAdapter);
   });
 
   it('should be defined', () => {

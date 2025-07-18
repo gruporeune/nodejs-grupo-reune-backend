@@ -1,6 +1,8 @@
+import { IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class PremioDiaRequestDto {
-  @ApiProperty({ example: 1000.50, description: 'Valor total do prêmio do dia' })
+  @ApiProperty({ example: 250.50 })
+  @IsNumber()
   valor_total: number;
 }

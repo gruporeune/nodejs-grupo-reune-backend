@@ -1,9 +1,12 @@
+import { IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class PremioIndividualRequestDto {
-  @ApiProperty({ example: 1, description: 'ID do usuário' })
+  @ApiProperty({ example: 1 })
+  @IsNumber()
   id_usuario: number;
 
-  @ApiProperty({ example: 100.00, description: 'Valor do prêmio' })
+  @ApiProperty({ example: 300.00 })
+  @IsNumber()
   valor: number;
 }

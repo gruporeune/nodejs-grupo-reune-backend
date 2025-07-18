@@ -1,16 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UsersRegisterResponseDto {
-  @ApiProperty({ example: true })
+  @ApiProperty()
   success: boolean;
 
   @ApiProperty({
     example: {
-      nome: 'Caio Wesley',
-      email: 'caio@exemplo.com',
-      telefone: '(11) 99999-9999',
-    },
-    description: 'Dados do usuário cadastrado',
+      nome: 'João da Silva',
+      email: 'joao@email.com',
+      telefone: '(11) 99999-9999'
+    }
   })
   usuario: {
     nome: string;

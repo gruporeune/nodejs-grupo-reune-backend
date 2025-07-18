@@ -2,23 +2,26 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class UsuarioResponseDto {
   @ApiProperty({ example: 1 })
-  id: number;
+  id: string;
 
-  @ApiProperty({ example: 'Pedro Leite' })
+  @ApiProperty({ example: 'João da Silva' })
   nome: string;
 
-  @ApiProperty({ example: 'pedro@exemplo.com' })
-  email: string;
+  @ApiProperty({ example: 'joao123' })
+  username: string;
 
-  @ApiProperty({ example: '85999999999' })
+  @ApiProperty({ example: 'joao@email.com' })
+  email?: string;
+
+  @ApiProperty({ example: '(11) 99999-9999' })
   telefone: string;
 
   @ApiProperty({ example: 'ativo' })
-  status: string;
+  status?: string;
 
-  @ApiProperty({ example: '85999999999' })
-  whatsapp: string;
+  @ApiProperty({ example: '(11) 98888-7777' })
+  whatsapp?: string;
 
-  @ApiProperty({ example: '12345678900' })
-  cpf: string;
+  @ApiProperty({ example: '123.456.789-00' })
+  cpf?: string;
 }

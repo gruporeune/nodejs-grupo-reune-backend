@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class PremioDiaResponseDto {
-  @ApiProperty({ example: 1000.50, description: 'Valor total do prêmio do dia' })
+  @ApiProperty({ example: 250.50 })
   valor_total: number;
 }

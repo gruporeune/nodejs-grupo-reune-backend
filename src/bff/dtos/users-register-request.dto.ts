@@ -1,15 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UsersRegisterRequestDto {
-  @ApiProperty({ example: 'Caio Wesley', description: 'Nome completo do usuário' })
-  nome: string;
+  @ApiProperty()
+  fullName: string;
 
-  @ApiProperty({ example: 'caio@exemplo.com', description: 'E-mail do usuário' })
+  @ApiProperty()
+  username: string;
+
+  @ApiProperty()
   email: string;
 
-  @ApiProperty({ example: '(11) 99999-9999', description: 'Telefone ou WhatsApp do usuário' })
-  telefone: string;
+  @ApiProperty()
+  whatsapp: string;
 
-  @ApiProperty({ example: 'senha123', description: 'Senha do usuário' })
-  senha: string;
+  @ApiProperty()
+  password: string;
+
+  @ApiProperty({ description: 'ID de quem indicou o usuário', required: false })
+  referredBy?: string;
 }

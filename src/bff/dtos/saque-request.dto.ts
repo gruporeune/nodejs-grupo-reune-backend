@@ -1,15 +1,20 @@
+import { IsNumber, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class SaqueRequestDto {
-  @ApiProperty({ example: 1, description: 'ID do usuário' })
+  @ApiProperty({ example: 1 })
+  @IsNumber()
   id_usuario: number;
 
-  @ApiProperty({ example: 200.50, description: 'Valor do saque' })
+  @ApiProperty({ example: 100.00 })
+  @IsNumber()
   valor: number;
 
-  @ApiProperty({ example: 'chavepix@exemplo.com', description: 'Chave Pix do saque' })
+  @ApiProperty({ example: 'joao@pix.com.br' })
+  @IsString()
   chave_pix: string;
 
-  @ApiProperty({ example: 'email', description: 'Tipo da chave Pix (email, cpf, telefone)' })
+  @ApiProperty({ example: 'email' })
+  @IsString()
   tipo_pix: string;
 }

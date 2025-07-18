@@ -11,7 +11,8 @@ async function bootstrap() {
     origin: [
       'http://localhost:3000', 
       'https://site-grupo-reune.vercel.app', 
-      'https://painel.gruporeune.com'
+      'https://painel.gruporeune.com',
+      'http://localhost:5173'
     ],
     credentials: true,
   });

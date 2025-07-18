@@ -1,12 +1,26 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-export class UsersLoginResponseDto {
-  @ApiProperty({ example: 1, description: 'ID do usuário' })
-  id: number;
+class UsuarioDto {
+  @ApiProperty({ example: 'token' })
+  access_token: string;
 
-  @ApiProperty({ example: 'Caio Wesley', description: 'Nome do usuário' })
+  @ApiProperty({ example: '1' })
+  id: string;
+
+  @ApiProperty({ example: 'João da Silva' })
   nome: string;
 
-  @ApiProperty({ example: 'caio@exemplo.com', description: 'Email do usuário' })
+  @ApiProperty({ example: 'joao@email.com' })
   email: string;
+}
+
+export class UsersLoginResponseDto {
+  @ApiProperty({ example: 'Login bem-sucedido!' })
+  mensagem: string;
+
+  @ApiProperty({ example: 'jwt.token.aqui' })
+  access_token: string;
+
+  @ApiProperty({ type: UsuarioDto })
+  usuario: UsuarioDto;
 }

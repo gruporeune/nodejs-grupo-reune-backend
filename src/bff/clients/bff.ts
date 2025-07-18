@@ -1,330 +1,251 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as mysql from 'mysql2/promise';
 import * as bcrypt from 'bcrypt';
 import { UsersRegisterRequestDto } from '../dtos/users-register-request.dto';
 import { SaqueRequestDto } from '../dtos/saque-request.dto';
 import { SaldoAtualizarRequestDto } from '../dtos/saldo-atualizar-request.dto';
-import { v2 as cloudinary } from 'cloudinary';
-import * as streamifier from 'streamifier';
 import { PremioIndividualRequestDto } from '../dtos/premio-individual-request.dto';
+import { createClient } from '@supabase/supabase-js';
+import { supabase } from './supaBase';
+import axios from 'axios';
+import { CreateCotaDto } from '../dtos/create-cota.dto';
 
 @Injectable()
-export class BffClient implements OnModuleInit {
-  private db;
+export class BffClient {
+  constructor(private readonly configService: ConfigService) {}
 
-  constructor(private readonly configService: ConfigService) {
-    this.db = mysql.createPool({
-      host: this.configService.get<string>('DB_HOST'),
-      port: Number(this.configService.get<number>('DB_PORT')),
-      user: this.configService.get<string>('DB_USER'),
-      password: this.configService.get<string>('DB_PASSWORD'),
-      database: this.configService.get<string>('DB_NAME'),
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-    });
-  }
-
-  async onModuleInit() {
-    try {
-      cloudinary.config({
-        cloud_name: this.configService.get<string>('CLOUDINARY_CLOUD_NAME'),
-        api_key: this.configService.get<string>('CLOUDINARY_API_KEY'),
-        api_secret: this.configService.get<string>('CLOUDINARY_API_SECRET'),
-      });
-
-      const connection = await this.db.getConnection();
-      console.log('✅ Conexão com MySQL e Cloudinary configurado!');
-      connection.release();
-    } catch (error) {
-      console.error('❌ Erro ao conectar ao banco MySQL ou configurar Cloudinary:', error);
-    }
-  }
+  private supabaseUrl = 'https://rxlymqymfccfjupiquvg.supabase.co';
+  private supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ4bHltcXltZmNjZmp1cGlxdXZnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTI5ODk4NywiZXhwIjoyMDY2ODc0OTg3fQ.szAh31DbMyhtj1dj_nTSR8NOYxKEH_RX50_ct4N0Vh0';
 
   async register(data: UsersRegisterRequestDto) {
-    const hashedPassword = await bcrypt.hash(data.senha, 10);
-    const sql = 'INSERT INTO usuarios (nome, email, telefone, senha) VALUES (?, ?, ?, ?)';
-    const values = [data.nome, data.email, data.telefone, hashedPassword];
+    const { fullName, username, email, whatsapp, password, referredBy } = data;
 
-    try {
-      await this.db.query(sql, values);
-      return {
-        success: true,
-        usuario: { nome: data.nome, email: data.email, telefone: data.telefone },
-      };
-    } catch (err: any) {
-      console.error('Erro SQL:', err);
-      throw new Error(`Erro ao cadastrar usuário: ${err.message}`);
+    const { data: signUpResult, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          username,
+          whatsapp,
+          referred_by: referredBy,
+        },
+      },
+    });
+
+    if (error || !signUpResult.user?.id) {
+      throw new Error('Erro ao cadastrar usuário: ' + error?.message);
     }
+
+    const userId = signUpResult.user.id;
+
+    const { data: existingProfile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (fetchError) {
+      throw new Error('Erro ao verificar perfil existente: ' + fetchError.message);
+    }
+
+    let profileError;
+
+    if (existingProfile) {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName,
+          username,
+          whatsapp,
+          referred_by: referredBy ?? null,
+        })
+        .eq('id', userId);
+
+      profileError = updateError;
+    } else {
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          full_name: fullName,
+          username,
+          whatsapp,
+          referred_by: referredBy ?? null,
+        });
+
+      profileError = insertError;
+    }
+
+    if (profileError) {
+      throw new Error('Erro ao salvar dados no perfil: ' + profileError.message);
+    }
+
+    return { mensagem: 'Usuário cadastrado com sucesso!' };
   }
 
-  async login(email: string, senha: string) {
-    const [usuarios] = await this.db.query('SELECT * FROM usuarios WHERE email = ?', [email]);
-    const usuario = (usuarios as any[])[0] || null;
-    if (!usuario) throw new Error('Email ou senha inválidos.');
-
-    const senhaCorreta = await bcrypt.compare(senha, usuario.senha);
-    if (!senhaCorreta) throw new Error('Email ou senha inválidos.');
-
-    return { id: usuario.id, nome: usuario.nome, email: usuario.email };
-  }
-
-  async totalCotasPorUsuario(id: number): Promise<{ total: number }> {
-    const [results] = await this.db.query(
-      `SELECT SUM(qtd_cotas) AS total FROM cotas WHERE id_usuario = ? AND status = 'aprovado'`,
-      [id]
+  async login(email: string, password: string) {
+    const response = await axios.post(
+      `${this.supabaseUrl}/auth/v1/token?grant_type=password`,
+      { email, password },
+      {
+        headers: {
+          apikey: this.supabaseAnonKey,
+          'Content-Type': 'application/json',
+        },
+      },
     );
-    const total = results[0]?.total || 0;
+
+    return response.data;
+  }
+
+  async totalCotasPorUsuario(id: string) {
+    const { data, error } = await supabase
+      .from('cotas')
+      .select('quantity')
+      .eq('user_id', id);
+
+    if (error) throw new Error(error.message);
+
+    const total = data.reduce((sum, item) => sum + item.quantity, 0);
     return { total };
   }
 
-  async totalCotasGeral(): Promise<{ total: number }> {
-    const [results] = await this.db.query(
-      `SELECT SUM(qtd_cotas) AS total FROM cotas WHERE status = 'aprovado'`
-    );
-    const total = results[0]?.total || 0;
+  async totalCotasGeral() {
+    const { data, error } = await supabase.from('cotas').select('quantity');
+    if (error) throw new Error(error.message);
+
+    const total = data.reduce((sum, item) => sum + item.quantity, 0);
     return { total };
   }
 
-  async inserirPremioDoDia(valor_total: number): Promise<{ mensagem: string }> {
-    const sql = `INSERT INTO premio_dia (valor_total) VALUES (?)`;
-    await this.db.query(sql, [valor_total]);
+  async inserirPremioDoDia(valor_total: number) {
+    const { error } = await supabase.from('daily_profits').insert({
+      profit_amount: valor_total,
+    });
+
+    if (error) throw new Error(error.message);
     return { mensagem: 'Valor do prêmio do dia salvo com sucesso!' };
   }
 
-  async obterPremioDoDia(): Promise<{ valor_total: number }> {
-    const [results] = await this.db.query(
-      `SELECT valor_total FROM premio_dia ORDER BY data_registro DESC LIMIT 1`
-    );
-    const valor_total = results[0]?.valor_total || 0;
-    return { valor_total };
+  async obterPremioDoDia() {
+    const { data, error } = await supabase
+      .from('daily_profits')
+      .select('profit_amount')
+      .order('profit_date', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) throw new Error(error.message);
+    return { valor_total: data.profit_amount };
   }
 
-  async obterSaldoColaborador(id: number): Promise<{ saldo: number }> {
-    const dataHoje = new Date().toISOString().slice(0, 10);
-    const [results] = await this.db.query(
-      `SELECT SUM(valor_contribuicao * 0.10) AS saldo 
-      FROM indicacoes 
-      WHERE indicou_id = ? AND data_contribuicao = ?`,
-      [id, dataHoje]
-    );
-    const saldo = results[0]?.saldo || 0;
-    return { saldo: parseFloat(saldo.toFixed(2)) };
-  }
+  async registrarSaque(data: SaqueRequestDto) {
+    const { error } = await supabase.from('transactions').insert({
+      user_id: data.id_usuario,
+      type: 'saque',
+      amount: data.valor,
+      status: 'pendente',
+      description: `Saque solicitado via chave ${data.tipo_pix}`,
+    });
 
-  async registrarSaque(data: SaqueRequestDto): Promise<{ mensagem: string }> {
-    const sql = `
-      INSERT INTO saques (id_usuario, valor, chave_pix, tipo_pix)
-      VALUES (?, ?, ?, ?)
-    `;
-    await this.db.query(sql, [data.id_usuario, data.valor, data.chave_pix, data.tipo_pix]);
+    if (error) throw new Error(error.message);
     return { mensagem: 'Solicitação de saque registrada com sucesso!' };
   }
 
-  async listarSaquesUsuario(id_usuario: number): Promise<{ saques: any[] }> {
-    const [results] = await this.db.query(
-      `SELECT id, valor, data_solicitacao, status
-      FROM saques
-      WHERE id_usuario = ?
-      ORDER BY data_solicitacao DESC`,
-      [id_usuario]
-    );
-    return { saques: results };
+  async listarSaquesUsuario(id_usuario: string) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('id, amount, created_at, status')
+      .eq('user_id', id_usuario)
+      .eq('type', 'saque')
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return { saques: data };
   }
 
-  async obterSaldoDisponivel(id_usuario: number): Promise<{ saldo: number }> {
-    const [results] = await this.db.query(
-      `SELECT saldo FROM saldos_usuario WHERE id_usuario = ?`,
-      [id_usuario]
-    );
-    const saldo = results[0]?.saldo || 0;
+  async obterSaldoDisponivel(id_usuario: string) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('amount, type')
+      .eq('user_id', id_usuario);
+
+    if (error) throw new Error(error.message);
+
+    const saldo = data.reduce((sum, t) => {
+      return sum + (t.type === 'deposito' ? t.amount : -t.amount);
+    }, 0);
+
     return { saldo };
   }
 
-  async adicionarSaldo(data: SaldoAtualizarRequestDto): Promise<{ mensagem: string }> {
-    const sql = `
-      INSERT INTO saldos_usuario (id_usuario, saldo)
-      VALUES (?, ?)
-      ON DUPLICATE KEY UPDATE saldo = saldo + VALUES(saldo), atualizado_em = NOW()
-    `;
-    await this.db.query(sql, [data.id_usuario, data.valor]);
-    return { mensagem: 'Saldo atualizado com sucesso!' };
+  async adicionarSaldo(data: SaldoAtualizarRequestDto) {
+    const { error } = await supabase.from('transactions').insert({
+      user_id: data.id_usuario,
+      type: 'deposito',
+      amount: data.valor,
+      status: 'confirmado',
+      description: 'Crédito manual',
+    });
+
+    if (error) throw new Error(error.message);
+    return { mensagem: 'Saldo adicionado com sucesso!' };
   }
 
-  async deduzirSaldo(data: SaldoAtualizarRequestDto): Promise<{ mensagem: string }> {
-    const sql = `
-      UPDATE saldos_usuario
-      SET saldo = saldo - ?, atualizado_em = NOW()
-      WHERE id_usuario = ? AND saldo >= ?
-    `;
-    const [result] = await this.db.query(sql, [data.valor, data.id_usuario, data.valor]);
-    if (result.affectedRows === 0) {
-      throw new Error('Saldo insuficiente ou usuário não encontrado.');
-    }
+  async deduzirSaldo(data: SaldoAtualizarRequestDto) {
+    const { error } = await supabase.from('transactions').insert({
+      user_id: data.id_usuario,
+      type: 'saque',
+      amount: data.valor,
+      status: 'confirmado',
+      description: 'Débito manual',
+    });
+
+    if (error) throw new Error(error.message);
     return { mensagem: 'Saldo deduzido com sucesso!' };
   }
 
-  async obterIndicadosDiretos(idUsuario: number): Promise<{ total: number }> {
-    const [results] = await this.db.query(
-      `SELECT COUNT(*) AS total FROM usuarios WHERE id_indicador = ?`,
-      [idUsuario]
-    );
-    const total = results[0]?.total || 0;
-    return { total };
-  }
-
-  async obterSaldoComissoes(idUsuario: number): Promise<{ total: number }> {
-    const [results] = await this.db.query(
-      `SELECT SUM(valor_comissao) AS total 
-      FROM comissoes 
-      WHERE id_usuario = ? AND tipo = 'direta'`,
-      [idUsuario]
-    );
-    const total = results[0]?.total || 0;
-    return { total };
-  }
-
-  async obterRankingDoadores(): Promise<{ ranking: any[] }> {
-    const [results] = await this.db.query(`
-      SELECT usuarios.id, usuarios.nome, SUM(cotas.quantidade) AS cotas
-      FROM usuarios
-      JOIN cotas ON usuarios.id = cotas.id_usuario
-      WHERE cotas.status = 'aprovado'
-      GROUP BY usuarios.id, usuarios.nome
-      ORDER BY cotas DESC
-      LIMIT 10
-    `);
-    return { ranking: results };
-  }
-
-  async obterAtividadesRecentes(): Promise<{ atividades: any[] }> {
-    const [results] = await this.db.query(`
-      SELECT tipo, usuario, cotas, posicao, DATE_FORMAT(data_hora, "%d %b %Y às %H:%i") as timestamp
-      FROM atividades_doadores
-      ORDER BY data_hora DESC
-      LIMIT 10
-    `);
-    return { atividades: results };
-  }
-
-  async criarTabelasDoacoesVoluntarios(): Promise<{ mensagem: string }> {
-    await this.db.query(`
-      CREATE TABLE IF NOT EXISTS doacoes_livres (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nome_completo VARCHAR(255),
-        valor DECIMAL(10,2),
-        comprovante_url VARCHAR(255),
-        data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    await this.db.query(`
-      CREATE TABLE IF NOT EXISTS voluntarios (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nome_completo VARCHAR(255),
-        whatsapp VARCHAR(20),
-        cidade_estado VARCHAR(100),
-        data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    return { mensagem: 'Tabelas criadas ou já existentes!' };
-  }
-
-  async registrarDoacaoLivre(nome_completo: string, valor: number, file: any): Promise<{ mensagem: string, url: string }> {
-    const uploadResult = await new Promise<any>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder: 'doacoes_comprovantes' },
-        (error, result) => {
-          if (result) resolve(result);
-          else reject(error);
-        }
-      );
-      streamifier.createReadStream(file.buffer).pipe(stream);
+  async registrarPremioIndividual(data: PremioIndividualRequestDto) {
+    const { error } = await supabase.from('daily_profits').insert({
+      profit_amount: data.valor,
+      profit_date: new Date().toISOString().slice(0, 10),
     });
 
-    const comprovante_url = uploadResult.secure_url;
-    await this.db.query(
-      `INSERT INTO doacoes_livres (nome_completo, valor, comprovante_url) VALUES (?, ?, ?)`,
-      [nome_completo, valor, comprovante_url]
-    );
-    return { mensagem: '✅ Doação registrada com sucesso!', url: comprovante_url };
-  }
-
-  async registrarVoluntario(nome_completo: string, whatsapp: string, cidade_estado: string): Promise<{ mensagem: string }> {
-    await this.db.query(
-      `INSERT INTO voluntarios (nome_completo, whatsapp, cidade_estado) VALUES (?, ?, ?)`,
-      [nome_completo, whatsapp, cidade_estado]
-    );
-    return { mensagem: 'Voluntário registrado com sucesso!' };
-  }
-
-  async obterPremiosAcumulados(id: number): Promise<{ total: number }> {
-    const [results] = await this.db.query(
-      `SELECT SUM(valor) AS total FROM premios_recebidos WHERE id_usuario = ?`,
-      [id]
-    );
-    return { total: results[0]?.total || 0 };
-  }
-
-  async obterUsuarioPorId(id: number): Promise<any> {
-    const [results] = await this.db.query(
-      `SELECT id, nome, email, telefone, status, whatsapp, cpf FROM usuarios WHERE id = ?`,
-      [id]
-    );
-    return results[0] || null;
-  }
-
-  async iniciarSaldos(): Promise<{ mensagem: string }> {
-    await this.db.query(`
-      INSERT INTO saldos_usuario (id_usuario, saldo, atualizado_em)
-      SELECT u.id, 0.00, NOW()
-      FROM usuarios u
-      WHERE NOT EXISTS (
-        SELECT 1 FROM saldos_usuario s WHERE s.id_usuario = u.id
-      )
-    `);
-    return { mensagem: 'Saldos iniciados com sucesso!' };
-  }
-
-  async atualizarSaldoDisponivel(id: number): Promise<any> {
-    const [premioResult] = await this.db.query(
-      `SELECT valor_total FROM premio_dia ORDER BY data_registro DESC LIMIT 1`
-    );
-    const premio = premioResult[0]?.valor_total || 0;
-    const hoje = new Date().toISOString().slice(0, 10);
-    const [comissaoResult] = await this.db.query(
-      `SELECT SUM(valor_contribuicao * 0.10) AS comissao FROM indicacoes WHERE indicou_id = ? AND data_contribuicao = ?`,
-      [id, hoje]
-    );
-    const comissao = comissaoResult[0]?.comissao || 0;
-    const valorTotal = premio + comissao;
-    await this.db.query(
-      `INSERT INTO saldos_usuario (id_usuario, saldo, atualizado_em)
-      VALUES (?, ?, NOW())
-      ON DUPLICATE KEY UPDATE saldo = saldo + VALUES(saldo), atualizado_em = NOW()`,
-      [id, valorTotal]
-    );
-    return { mensagem: 'Saldo atualizado com sucesso!', premio, comissao, acumulado: valorTotal };
-  }
-
-  async registrarPremioIndividual(data: PremioIndividualRequestDto): Promise<{ mensagem: string }> {
-    await this.db.query(
-      `INSERT INTO premios_recebidos (id_usuario, valor, data_registro) VALUES (?, ?, CURDATE())`,
-      [data.id_usuario, data.valor]
-    );
+    if (error) throw new Error(error.message);
     return { mensagem: 'Prêmio registrado com sucesso!' };
   }
 
-  async registrarLucroEspecialistas(valor_total: number): Promise<{ mensagem: string }> {
-    await this.db.query(`INSERT INTO lucro_especialistas (valor_total) VALUES (?)`, [valor_total]);
-    return { mensagem: 'Lucro dos especialistas salvo com sucesso!' };
+  async obterUsuarioPorId(id: string) {
+    const { data: userAuth, error: authError } = await supabase.auth.admin.getUserById(id);
+    if (authError || !userAuth) throw new Error('Erro ao buscar usuário autenticado');
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('full_name, whatsapp, username')
+      .eq('id', id)
+      .single();
+
+    if (profileError || !profile) throw new Error('Erro ao buscar perfil do usuário');
+
+    return {
+      id: userAuth.user.id,
+      nome: profile.full_name,
+      username: profile.username,
+      telefone: profile.whatsapp
+    };
   }
 
-  async obterLucroEspecialistas(): Promise<{ valor_total: number }> {
-    const [results] = await this.db.query(
-      `SELECT valor_total FROM lucro_especialistas ORDER BY data_registro DESC LIMIT 1`
-    );
-    return { valor_total: results[0]?.valor_total || 0 };
+  async insertCota(dto: CreateCotaDto) {
+    const { error } = await supabase.from('cotas').insert({
+        user_id: dto.userId,
+        quantity: dto.quantity,
+        amount_paid: dto.amountPaid,
+        created_at: new Date().toISOString(),
+    });
+
+    if (error) throw new Error(error.message);
+    return { mensagem: 'Cota inserida com sucesso!' };
   }
 
 }
